@@ -3,8 +3,8 @@ mod ffi;
 use candle::backend::BackendStorage;
 use candle::cuda_backend::cudarc::driver::DevicePtr;
 use candle::cuda_backend::WrapErr;
-use candle::{CpuStorage, Layout, Result, Shape, Tensor};
-use half::f16;
+use candle::{CpuStorage, Layout, Result, Shape, Tensor, DType};
+use half::{f16, bf16};
 
 pub struct FlashAttn {
     pub softmax_scale: f32,
@@ -43,12 +43,13 @@ impl candle::CustomOp3 for FlashAttn {
     ) -> Result<(candle::CudaStorage, Shape)> {
         // https://github.com/Dao-AILab/flash-attention/blob/b252072409e69c25f2b9d473cc534e49b24decd2/csrc/flash_attn/flash_api.cpp#L187
         let dev = q.device();
+        let dtype = q.dtype();
         let out_shape = q_l.shape().clone();
         let out_l = Layout::contiguous(&out_shape);
 
-        let q = q.as_cuda_slice::<f16>()?;
-        let k = k.as_cuda_slice::<f16>()?;
-        let v = v.as_cuda_slice::<f16>()?;
+        let q = if dtype == DType::BF16 { q.as_cuda_slice::<bf16>()? } else { q.as_cuda_slice::<f16>()? };
+        let k = if dtype == DType::BF16 { k.as_cuda_slice::<bf16>()? } else { k.as_cuda_slice::<f16>()? };
+        let v = if dtype == DType::BF16 { v.as_cuda_slice::<bf16>()? } else { v.as_cuda_slice::<f16>()? };
         let q = q.slice(q_l.start_offset()..);
         let k = k.slice(k_l.start_offset()..);
         let v = v.slice(v_l.start_offset()..);
