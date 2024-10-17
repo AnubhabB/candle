@@ -1221,12 +1221,6 @@ fn test_gather_elements() -> Result<()> {
     )?;
 
     // Rank 3
-    // when axis is `0`
-    // out[0][0][0] = data[indices[0][0][0]][0][0]
-    // out[0][0][0] = data[1][0][0]
-    //
-    // when axis is `1`
-    // out[0][0][0] = data[0][1][0]
     test(
         &[
             [[1.0, 2.0], [3.0, 4.0]],
@@ -1251,22 +1245,25 @@ fn test_gather_elements() -> Result<()> {
         &[[[3.]]],
     )?;
 
-    // Rank 3
-    // test(
-    //     &[
-    //         [[1.0, 2.0], [3.0, 4.0]],
-    //         [[5.0, 6.0], [7.0, 8.0]],
-    //         [[9.0, 10.0], [11.0, 12.0]],
-    //         [[13.0, 14.0], [15.0, 16.0]],
-    //     ],
-    //     &[[[1i64], [0]]],
-    //     0,
-    //     &[[[5.0], [3.]]],
-    // )?;
+    test(
+        &[
+            [[1.0, 2.0], [3.0, 4.0]],
+            [[5.0, 6.0], [7.0, 8.0]],
+            [[9.0, 10.0], [11.0, 12.0]],
+            [[13.0, 14.0], [15.0, 16.0]],
+        ],
+        &[[[1i64], [0]]],
+        2,
+        &[[[2.], [3.]]],
+    )?;
 
     // Error cases
-    // Invalid axis
+    // Invalid index
     assert!(test(&[[1.0, 2.0, 3.0, 4.0]], &[[3i64]], 0, &[[1., 2., 3., 4.]]).is_err());
+    // Invalid axis/ dim
+    assert!(test(&[[1.0, 2.0, 3.0, 4.0]], &[[3i64]], 2, &[[1., 2., 3., 4.]]).is_err());
+    // Invalid rank
+    assert!(test(&[[1.0, 2.0, 3.0, 4.0]], &[3i64], 0, &[[1.]]).is_err());
 
     fn test(
         data: impl NdArray,
@@ -1326,15 +1323,15 @@ fn test_gather_elements() -> Result<()> {
         let eval = candle_onnx::simple_eval(&manual_graph, inputs)?;
         assert_eq!(eval.len(), 1);
 
-        // let z = eval.get(OUTPUT_Z).expect("Output 'z' not found");
-        // let expected = Tensor::new(expected, &Device::Cpu)?;
-        // match expected.dims().len() {
-        //     0 => assert_eq!(z.to_vec0::<f64>()?, expected.to_vec0::<f64>()?),
-        //     1 => assert_eq!(z.to_vec1::<f64>()?, expected.to_vec1::<f64>()?),
-        //     2 => assert_eq!(z.to_vec2::<f64>()?, expected.to_vec2::<f64>()?),
-        //     3 => assert_eq!(z.to_vec3::<f64>()?, expected.to_vec3::<f64>()?),
-        //     _ => unreachable!(),
-        // };
+        let z = eval.get(OUTPUT_Z).expect("Output 'z' not found");
+        let expected = Tensor::new(expected, &Device::Cpu)?;
+        match expected.dims().len() {
+            0 => assert_eq!(z.to_vec0::<f64>()?, expected.to_vec0::<f64>()?),
+            1 => assert_eq!(z.to_vec1::<f64>()?, expected.to_vec1::<f64>()?),
+            2 => assert_eq!(z.to_vec2::<f64>()?, expected.to_vec2::<f64>()?),
+            3 => assert_eq!(z.to_vec3::<f64>()?, expected.to_vec3::<f64>()?),
+            _ => unreachable!(),
+        };
 
         Ok(())
     }
@@ -5521,5 +5518,109 @@ fn test_reduce_sum_do_not_keep_dims() -> Result<()> {
         assert_eq!(reduced.to_vec2::<f32>()?, expected.to_vec2::<f32>()?);
     }
 
+    Ok(())
+}
+
+
+// Xor
+#[test]
+fn test_xor() -> Result<()> {
+    // tests based on: https://github.com/onnx/onnx/blob/main/docs/Operators.md#Xor
+    
+    // 2d
+    test(
+        &[
+            [0_u8, 1, 0, 0],
+            [0, 0, 1, 1],
+            [0, 1, 1, 1]
+        ],
+        &[
+            [1_u8, 1, 0, 0],
+            [1, 0, 0, 1],
+            [1, 1, 1, 0]
+        ],
+        &[
+            [1_u8, 0, 0, 0],
+            [1, 0, 1, 0],
+            [1, 0, 0, 1]
+        ]
+    )?;
+
+
+    fn test(
+        input: impl NdArray,
+        other: impl NdArray,
+        expected: impl NdArray
+    ) -> Result<()> {
+        let manual_graph = create_model_proto_with_graph(Some(GraphProto {
+            node: vec![NodeProto {
+                op_type: "Xor".to_string(),
+                domain: "".to_string(),
+                attribute: vec![],
+                input: vec![INPUT_X.to_string(), INPUT_Y.to_string()],
+                output: vec![OUTPUT_Z.to_string()],
+                name: "".to_string(),
+                doc_string: "".to_string(),
+            }],
+            name: "".to_string(),
+            initializer: vec![],
+            input: vec![],
+            output: vec![ValueInfoProto {
+                name: OUTPUT_Z.to_string(),
+                doc_string: "".to_string(),
+                r#type: None,
+            }],
+            value_info: vec![],
+            doc_string: "".to_string(),
+            sparse_initializer: vec![],
+            quantization_annotation: vec![],
+        }));
+
+        let inputs: HashMap<String, Tensor> = HashMap::from([
+            (INPUT_X.to_string(), Tensor::new(input, &Device::Cpu)?),
+            (INPUT_Y.to_string(), Tensor::new(other, &Device::Cpu)?),
+        ]);
+        let input_dtype = DType::U8;
+        let eval = candle_onnx::simple_eval(&manual_graph, inputs)?;
+        assert_eq!(eval.len(), 1);
+
+        let z = eval.get(OUTPUT_Z).expect("Output 'z' not found");
+
+        let expected = Tensor::new(expected, &Device::Cpu)?;
+
+        match expected.dims().len() {
+            0 => {
+                if input_dtype == DType::U8 {
+                    assert_eq!(z.to_vec0::<u8>()?, expected.to_vec0::<u8>()?)
+                } else {
+                    assert_eq!(z.to_vec0::<f64>()?, expected.to_vec0::<f64>()?)
+                }
+            }
+            1 => {
+                if input_dtype == DType::U8 {
+                    assert_eq!(z.to_vec1::<u8>()?, expected.to_vec1::<u8>()?)
+                } else {
+                    assert_eq!(z.to_vec1::<f64>()?, expected.to_vec1::<f64>()?)
+                }
+            }
+            2 => {
+                if input_dtype == DType::U8 {
+                    assert_eq!(z.to_vec2::<u8>()?, expected.to_vec2::<u8>()?)
+                } else {
+                    assert_eq!(z.to_vec2::<f64>()?, expected.to_vec2::<f64>()?)
+                }
+            }
+            3 => {
+                if input_dtype == DType::U8 {
+                    assert_eq!(z.to_vec3::<u8>()?, expected.to_vec3::<u8>()?)
+                } else {
+                    assert_eq!(z.to_vec3::<f64>()?, expected.to_vec3::<f64>()?)
+                }
+            }
+            _ => unreachable!(),
+        };
+
+        Ok(())
+    }
     Ok(())
 }

@@ -1,7 +1,7 @@
 use crate::onnx::attribute_proto::AttributeType;
 use crate::onnx::tensor_proto::DataType;
 use crate::onnx::{self, GraphProto};
-use candle::{bail, DType, Device, IndexOp, Result, Tensor};
+use candle::{bail, DType, Device, Result, Tensor};
 use std::collections::{HashMap, HashSet};
 
 pub type Value = Tensor;
@@ -671,6 +671,10 @@ fn simple_eval_(
                 values.insert(node.output[0].clone(), xs);
             }
             // https://onnx.ai/onnx/operators/onnx__GatherElements.html#gatherelements
+            // A Note to fellow lurkers:
+            // The numpy based `gather_elements` implementation in `onnx` tests [here](https://github.com/onnx/onnx/blob/main/onnx/backend/test/case/node/gatherelements.py)
+            // and examples is incorrect.
+            // Use `torch.gather` for the validating/ verifying against the proper behaviour
             "GatherElements" => {
                 let data = get(&node.input[0])?;
                 let indices = get(&node.input[1])?;
@@ -707,109 +711,7 @@ fn simple_eval_(
                         .add(indices)?
                 };
 
-                let out = match rank {
-                    1 | 2 => data.gather(indices, axis)?,
-                    3 => {
-                        // data.index_select(indexes, dim)
-                        // swap axes if required
-                        // let (data_swp, idx_swp) = if axis != 0 {
-                        //     (data.transpose(0, axis)?, indices.transpose(0, axis)?)
-                        // } else {
-                        //     (data.clone(), indices.clone())
-                        // };
-
-                        // println!("Data: {data_swp}\nIndices: {idx_swp}");
-                        // for i in 0 .. idx_swp.dim(0)? {
-                        //     let idxr = idx_swp.i((i, ..))?;
-                        //     println!("Index: {idxr}");
-                        // }
-                        let d = data.gather(indices, axis)?;
-                        println!("{d}");
-                        data.clone()
-                        // let data_shape = data_swp.dims();
-                        // let indices_shape = idx_swp.dims();
-                        // let data_2d = data_swp.reshape((data_shape[0], data_shape[1..].iter().product::<usize>()))?;
-                        // let indices_2d = idx_swp.reshape((indices_shape[0], indices_shape[1..].iter().product::<usize>()))?;
-
-                        // println!("{:?}", data_2d.shape());
-                        // println!("{:?}", indices_2d.shape());
-                        // // Perform gather on the 2D tensors
-                        // let gathered_2d = data_2d.gather(&indices_2d, 0)?;
-
-                        // // Reshape back to 3D
-                        // let mut output_shape = indices_shape.to_vec();
-                        // output_shape[0] = data_shape[0];
-                        // gathered_2d.reshape(output_shape)?
-                        // let data_swp = data.transpose(0, axis)?.contiguous()?;
-                        // let idx_swp = indices.transpose(0, axis)?.contiguous()?;
-
-                        // // data_swp.index_select(indexes, dim)
-                        // println!("{data_swp}");
-                        // println!("{idx_swp}");
-                        // for i in 0 .. idx_swp.dim(0)? {
-                        //     println!("{}", idx_swp.get(i)?);
-                        //     let res = data_swp.get(i)?.gather(&idx_swp.get(i)?, 0)?;
-                        //     println!("{res}");
-                        //     // data_swp.in
-                        // }
-                        // data_swp.gather(&idx_swp, 0)?.transpose(0, axis)?
-                        // todo!()
-                    }
-                    _ => bail!("GatherElement not implemented for tensor of rank[{rank}]")
-                };
-                
-                // // let out = match data.gather(indices, axis) {
-                // //     Ok(o) => o,
-                // //     Err(e) => {
-                // //         eprintln!("Failed to gather: {e}");
-                // //         data.clone()
-                // //     }
-                // // };
-                // let out = if rank == 1 {
-                //     data.gather(indices, 0)?
-                // } else {
-                // //     
-                //     
-                //     let idx_swapped = indices.transpose(0, axis)?.contiguous()?;
-                //     println!("Axis[{axis}] InputSwpShape[{:?}] IndicesSwpShape[{:?}]", data_swapped.shape(), idx_swapped.shape());
-
-                //     for i in 0 .. idx_swapped.dim(0)? {
-                //         let d_slice = data_swapped.get(i)?;
-                //         let i_slice = idx_swapped.get(i)?;
-
-                //         println!("@[{i}]: {d_slice} {i_slice}");
-                //         let g = match d_slice.gather(&i_slice, 0) {
-                //             Ok(g) => { println!("@gthered [{i}]: {g}"); g }
-                //             Err(e) => { eprintln!("Falied to gather: {e:?}"); continue; }
-                //         };
-                //     }
-
-                //     data.clone()
-                // };
-
-                // println!("Output: {out}");
-                // println!("{:?} {:?} {:?} {:?}", data.shape(), indices.shape(), data_swapped.shape(), idx_swapped.shape());
-
-                // // Gather & Swap axes back
-                // let out = data_swapped.gather(&idx_swapped, 0)?
-                //     .transpose(0, axis)?;
-                // let mut gathered = Vec::new();
-                // for i in 0..data_swapped.dims()[0] {
-                //     let data_slice = data_swapped.get(i)?;
-                //     let indices_slice = idx_swapped.get(i)?;
-                    
-                //     // Correct usage of gather with dimension
-                //     let gathered_slice = data_slice.gather(&indices_slice, 0)?;
-                //     gathered.push(gathered_slice);
-                // }
-
-                // // Step 4: Stack the gathered slices
-                // let gathered = Tensor::stack(&gathered, 0)?;
-
-                // // Step 5: Swap axes back
-                // let out = gathered.transpose(0, axis)?;
-                println!("-----------------");
-                values.insert(node.output[0].clone(), out);
+                values.insert(node.output[0].clone(), data.gather(indices, axis)?);
             }
             "Shape" => {
                 // https://github.com/onnx/onnx/blob/main/docs/Operators.md#Shape
@@ -2031,6 +1933,18 @@ fn simple_eval_(
                         ))?,
                     );
                 }
+            }
+            // https://onnx.ai/onnx/operators/onnx__Xor.html
+            "Xor" => {
+                let a = get(&node.input[0])?.gt(0_u8)?;
+                let b = get(&node.input[1])?.gt(0_u8)?;
+
+                let out = a.add(&b)?.eq(1_u8)?;
+
+                values.insert(
+                    node.output[0].clone(),
+                    out
+                );
             }
             op_type => bail!("unsupported op_type {op_type} for op {node:?}"),
         }
