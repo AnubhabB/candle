@@ -338,6 +338,16 @@ fn simple_eval_(
                 let output = input0.broadcast_add(input1)?;
                 values.insert(node.output[0].clone(), output);
             }
+            // https://onnx.ai/onnx/operators/onnx__And.html#and
+            "And" => {
+                // Since we don't have a `DType::Bool` yet, this ensures that we are working with `0`(False) & `1`(True)
+                let a = get(&node.input[0])?.gt(0_u8)?;
+                let b = get(&node.input[1])?.gt(0_u8)?;
+
+                let out = a.broadcast_add(&b)?.eq(2_u8)?;
+
+                values.insert(node.output[0].clone(), out);
+            }
             "Sub" => {
                 let input0 = get(&node.input[0])?;
                 let input1 = get(&node.input[1])?;
@@ -1503,6 +1513,40 @@ fn simple_eval_(
                 let expanded_tensor = input_tensor.broadcast_as(target_shape)?;
 
                 values.insert(node.output[0].clone(), expanded_tensor);
+            }
+            "ReduceProd" => {
+                let input = get(&node.input[0])?;
+                let axes = get_opt(1);
+                let keepdims = get_attr_opt::<i64>(node, "keepdims")?.copied().unwrap_or(1);
+                let noop_with_empty_axes = get_attr_opt::<i64>(node, "noop_with_empty_axes")?
+                    .copied()
+                    .unwrap_or(0);
+
+                let axes = match axes {
+                    Some(Ok(axes)) => axes
+                        .to_vec1::<i64>()?
+                        .into_iter()
+                        .map(|x| x as usize)
+                        .collect::<Vec<_>>(),
+                    Some(Err(_)) | None => {
+                        if noop_with_empty_axes == 1 {
+                            vec![]
+                        } else {
+                            (0..input.rank()).collect()
+                        }
+                    }
+                };
+
+                // TODO: this is incorrect, `prod` is not implemented for tensors
+                let output = if keepdims == 1 {
+                    // input.sum_keepdim(axes)?
+                    todo!()
+                } else {
+                    // input.sum(axes)?
+                    todo!()
+                };
+
+                values.insert(node.output[0].clone(), output);
             }
             //https://github.com/onnx/onnx/blob/main/docs/Operators.md#ReduceSum
             // Version 13 impl
