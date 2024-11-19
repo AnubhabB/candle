@@ -1,4 +1,4 @@
-use crate::{Result, Tensor};
+use crate::{CustomOp1, Result, Tensor};
 use rayon::prelude::*;
 
 #[derive(Debug, Clone, Copy)]
@@ -200,7 +200,51 @@ fn next_power_of_2(x: usize) -> usize {
     n
 }
 
+#[derive(Debug, Clone, Copy)]
+struct Sort {
+    asc: bool,
+    dim: usize,
+}
+
+impl CustomOp1 for Sort {
+    fn name(&self) -> &'static str {
+        "sort"
+    }
+
+    fn cpu_fwd(&self, storage: &crate::CpuStorage, layout: &crate::Layout) -> Result<(crate::CpuStorage, crate::Shape)> {
+        todo!()
+    }
+}
+
 impl Tensor {
+    /// Sorts the tensor along the given dimension, returns the sorted tensor along with the
+    /// sorted indexes.
+    /// 
+    /// Returns a tuple (Tensor, Tensor) where:
+    /// `0th` index: sorted values
+    /// `1st` index: sorted indices
+    /// 
+    /// If `dim` is `None`, by default the last dim is sorted (akin to -1 indexing).
+    /// If `asc` is `true`, the sorting is in ascending order, descending when `false`.
+    /// 
+    /// Stability: The sorting routines may resort to `unstable` sort algorithms and there are no guarantees that
+    /// the order of equivallent elements would be preserved.
+    pub fn sort(&self, dim: Option<crate::D>, asc: bool) -> Result<(Tensor, Tensor)> {
+        todo!()
+    }
+
+    /// Returns the indices that sort the tensor along the given dimension.
+    /// This is essentially the `1st` index of the result of `Tensor::sort()` operation
+    /// 
+    /// If `dim` is `None`, by default the last dim is sorted (akin to -1 indexing).
+    /// If `asc` is `true`, the sorting is in ascending order, descending when `false`.
+    /// 
+    /// Stability: The sorting routines may resort to `unstable` sort algorithms and there are no guarantees that
+    /// the order of equivallent elements would be preserved.
+    pub fn argsort(&self, dim: Option<crate::D>, asc: bool) -> Result<Tensor> {
+        self.sort(dim, asc).map(|d| d.1)
+    }
+
     /// Returns the indices that sort the tensor along the last dimension.
     ///
     /// If `asc` is `true`, sorting is in ascending order. Otherwise sorting is performed in
