@@ -230,6 +230,20 @@ impl Tensor {
     /// Stability: The sorting routines may resort to `unstable` sort algorithms and there are no guarantees that
     /// the order of equivallent elements would be preserved.
     pub fn sort(&self, dim: Option<crate::D>, asc: bool) -> Result<(Tensor, Tensor)> {
+        if !self.is_contiguous() {
+            return Err(crate::Error::RequiresContiguous { op: "sort" });
+        }
+
+        let dim = dim.map_or(crate::D::Minus1, |d| d);
+        let len = self.shape().elem_count();
+
+        // TODO: figure out the upper bound for `bitonic` sort kernels
+        // For size < `bitonic sort` limits in current implementation - call the existing `ArgSort` Op
+        if dim == crate::D::Minus1 && len <= 1024 {
+            return self.sort_last_dim(asc);
+        }
+
+        
         todo!()
     }
 
